@@ -10,6 +10,21 @@ build:
 test:
     nix develop --command go test ./...
 
+# end-to-end CLI smoke tests (verifies command shape on minimal repos)
+smoke:
+    nix develop --command bash test/smoke/smoke.sh
+
+# end-to-end flow tests (mocks realistic tag histories, multi-branch scenarios, push-to-remote, end-to-end stamping)
+flows:
+    nix develop --command bash test/flows/flows.sh
+
+# run smoke + flows
+check-cli: smoke flows
+
+# (re)build dev fixtures under ./fixtures (gitignored)
+fixtures:
+    bash test/fixtures/init.sh
+
 # run nix flake check
 check:
     nix flake check

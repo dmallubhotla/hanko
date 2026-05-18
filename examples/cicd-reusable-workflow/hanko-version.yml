@@ -1,0 +1,50 @@
+# Mirror of cicd/.github/workflows/gitversion.yml rewritten on top of the
+# hanko-version composite action.
+#
+# Heads up before adopting this: per design-decisions D-010, many callers
+# that today consume gitversion-as-a-separate-job are better served by
+# inlining `hanko` calls in the consumer job rather than threading
+# `outputs.fullSemVer` across a job boundary. Use this reusable workflow
+# only when a permission boundary forces the job split.
+#
+# Assumes `hanko` is on PATH (baked into actions-runner-image).
+
+name: Run Hanko Version
+
+on:
+  workflow_call:
+    inputs:
+      override:
+        description: "Override the resolved version instead of running hanko."
+        required: false
+        type: string
+    outputs:
+      fullSemVer:
+        value: ${{ jobs.hanko.outputs.fullSemVer }}
+  workflow_dispatch:
+
+jobs:
+  hanko:
+    name: Generate output
+    runs-on: ci-gha-general-runners
+    outputs:
+      fullSemVer: ${{ steps.buildstring.outputs.fullSemVer }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        uses: gwre-hazardhub/cicd/.github/actions/hanko-version@v1
+        with:
+          override: ${{ inputs.override }}
+
+      - name: Build version string
+        id: buildstring
+        shell: bash
+        run: |
+          VERSION="v${{ steps.version.outputs.full }}"
+          echo "Setting output: fullSemVer=$VERSION"
+          echo "fullSemVer=$VERSION" >> "$GITHUB_OUTPUT"

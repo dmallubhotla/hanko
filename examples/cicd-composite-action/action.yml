@@ -1,0 +1,75 @@
+# Drop-in replacement for cicd/.github/actions/resolve-version. Emits the
+# same structured-field contract (full, major, minor, patch, major-minor,
+# short-sha, is-prerelease, branch) so downstream callers don't change.
+#
+# Install assumption: `hanko` is on PATH because actions-runner-image bakes
+# it in. There is no install step in this composite — keep this file focused
+# on the contract, not on tool plumbing.
+#
+# Whether you actually need this composite vs an inline `hanko version
+# --format gha >> $GITHUB_OUTPUT` call depends on the caller. See
+# examples/migrations/README.md and design-decisions.md D-010.
+
+name: Hanko Version
+description: |
+  Resolve the current version using hanko and emit it as structured fields.
+  Drop-in replacement for the gittools/actions-based resolve-version action.
+
+  Assumes the caller has already checked out the repo with `fetch-depth: 0`.
+  Hanko refuses to operate on a shallow clone (TODO: D-004).
+
+inputs:
+  override:
+    description: "Use this version string instead of running hanko. Must parse as semver (leading v optional)."
+    required: false
+    default: ""
+  source:
+    description: "Branch name to use when HEAD is detached (e.g. tag-push events). Defaults to github.ref_name."
+    required: false
+    default: ${{ github.ref_name }}
+
+outputs:
+  full:
+    description: "Full SemVer (e.g. 1.2.3 or 1.2.3-feature.1). No leading v."
+    value: ${{ steps.hanko.outputs.full }}
+  major:
+    description: "Major component."
+    value: ${{ steps.hanko.outputs.major }}
+  minor:
+    description: "Minor component."
+    value: ${{ steps.hanko.outputs.minor }}
+  patch:
+    description: "Patch component."
+    value: ${{ steps.hanko.outputs.patch }}
+  major-minor:
+    description: "<major>.<minor>."
+    value: ${{ steps.hanko.outputs.major-minor }}
+  short-sha:
+    description: "Short commit SHA."
+    value: ${{ steps.hanko.outputs.short-sha }}
+  is-prerelease:
+    description: "true if version has a pre-release suffix."
+    value: ${{ steps.hanko.outputs.is-prerelease }}
+  branch:
+    description: "Current branch (or source override), sanitized for use in container tags."
+    value: ${{ steps.hanko.outputs.branch }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run hanko
+      id: hanko
+      shell: bash
+      env:
+        OVERRIDE: ${{ inputs.override }}
+        SOURCE: ${{ inputs.source }}
+      run: |
+        set -euo pipefail
+        if [[ -n "$OVERRIDE" ]]; then
+          # NOTE: --override flag not implemented yet (see ROADMAP M1 deferred
+          # item / design-decisions D-002). For now this branch errors;
+          # remove the `override` input or wire it up before relying on it.
+          echo "override input not yet supported by hanko" >&2; exit 1
+        fi
+        hanko version --format gha >> "$GITHUB_OUTPUT"
+        # TODO when D-001 lands: hanko version --source "$SOURCE" --format gha …

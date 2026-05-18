@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dmallubhotla/hanko/internal/gitinfo"
-	"github.com/dmallubhotla/hanko/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -17,14 +15,9 @@ var versionCmd = &cobra.Command{
 	Short:   "Compute the current version from git history",
 	GroupID: "compute",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		info, err := gitinfo.Read(repoPath)
+		v, err := resolveVersion()
 		if err != nil {
-			return fmt.Errorf("read git info: %w", err)
-		}
-
-		v, err := version.Compute(info)
-		if err != nil {
-			return fmt.Errorf("compute version: %w", err)
+			return err
 		}
 
 		switch versionFormat {
@@ -40,14 +33,20 @@ var versionCmd = &cobra.Command{
 			for k, val := range v.AsEnv() {
 				fmt.Printf("%s=%s\n", k, val)
 			}
+		case "gha":
+			// Field names match cicd's resolve-version composite action so
+			// hanko is a drop-in replacement. See docs/design-decisions.md D-006.
+			for k, val := range v.AsGHA() {
+				fmt.Printf("%s=%s\n", k, val)
+			}
 		default:
-			return fmt.Errorf("unknown format %q (want: semver, full, json, env)", versionFormat)
+			return fmt.Errorf("unknown format %q (want: semver, full, json, env, gha)", versionFormat)
 		}
 		return nil
 	},
 }
 
 func init() {
-	versionCmd.Flags().StringVarP(&versionFormat, "format", "f", "semver", "output format: semver, full, json, env")
+	versionCmd.Flags().StringVarP(&versionFormat, "format", "f", "semver", "output format: semver, full, json, env, gha")
 	rootCmd.AddCommand(versionCmd)
 }
