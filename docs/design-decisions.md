@@ -81,6 +81,19 @@ Add to this as you go; revisit collectively rather than litigating each one in i
   Side effect: `mode: continuous-delivery` config key is removed; it had no effect, since the +n behaviour it named is gone.
   Future bump strategies (conventional commits, manual override) will choose the *direction* of the +1 bump, not its magnitude.
 
+- **D-015 — `stamp nix` rewrites every `version = "X";` line sharing the current value.**
+  Surfaced by kestrel (first real consumer): its `flake.nix` exposes both `kest` and `kestci` derivations, each a `buildGoApplication` with its own `version = "..."`.
+  First-match-wins silently left the second derivation on the previous release's version.
+  **Rule chosen**:
+  - Find every `version = "X";` line in the file.
+  - If all share the same value → rewrite all of them.
+  - If any diverge → refuse, with an error pointing at the shared-`let` pattern.
+  No nix AST parsing — the rule is purely line-based, matched on the current value.
+  This handles both shapes naturally: hoisted-via-`let` (one match, the binding; the `inherit version` references need no rewriting) and per-derivation-inline (N matches with one value).
+  **Known false-positive surface**: a genuinely unrelated `version = "X";` line (e.g., a vendored dependency override that happens to be pinned at the same version) gets rewritten too.
+  Documented as an assumption in `docs/hanko-yaml.md`; the divergence-refusal protects against the obvious bad shape.
+  Independent-versions case (one flake, distinct products) deferred — reopen when a second consumer needs it; config-driven `nix.version-attrs` is the obvious shape if/when that demand surfaces.
+
 - **D-012 — `git describe` filters to semver-shaped tags via `--match` patterns.**
   Two patterns passed: `v[0-9]*.[0-9]*.[0-9]*` and `[0-9]*.[0-9]*.[0-9]*`.
   Non-semver marker tags like `release-frozen` are skipped at the source.

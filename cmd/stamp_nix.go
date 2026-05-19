@@ -73,27 +73,63 @@ contain at least one ` + "`version = \"<value>\";`" + ` attr; the first match wi
 // comment. The captured groups let us preserve everything around the value.
 var nixVersionLineRE = regexp.MustCompile(`^(\s*version\s*=\s*)"([^"]*)"(\s*;\s*(?:#.*)?)\s*$`)
 
-// setNixVersion rewrites the first `version = "..."` line found. Returns the
-// rewritten file plus a "version: old → new" change description.
+// setNixVersion rewrites every `version = "..."` line that shares the same
+// current value. If multiple lines exist with different values, refuses —
+// that's the multi-product flake case and the caller has to disambiguate
+// (D-015).
 //
-// First-match-wins is intentional: real flakes can have several string attrs
-// that look like version assignments (inputs metadata, sibling packages),
-// but the package's own `version` is overwhelmingly the first one in the
-// `buildGoApplication`/`mkDerivation` block at the top.
+// Assumption: when several `version = "X"` lines share the same value, they
+// all refer to the same release. False-positive case: a coincidental match
+// like a vendored-package override at the same version string would be
+// rewritten too. Document this assumption in the schema reference; the
+// divergence-refusal covers the obvious bad shape.
+//
+// Returns the rewritten file plus a "version: old → new" change description
+// (one entry, since by definition all values were equal).
 func setNixVersion(content []byte, semver string) ([]byte, []string, error) {
 	lines := strings.Split(string(content), "\n")
+
+	type hit struct {
+		lineIdx               int
+		prefix, oldVal, trail string
+	}
+	var hits []hit
 	for i, line := range lines {
 		m := nixVersionLineRE.FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
-		prefix, oldVal, trailing := m[1], m[2], m[3]
-		lines[i] = prefix + `"` + semver + `"` + trailing
-		return []byte(strings.Join(lines, "\n")),
-			[]string{fmt.Sprintf("version: %s → %s", oldVal, semver)},
-			nil
+		hits = append(hits, hit{i, m[1], m[2], m[3]})
 	}
-	return nil, nil, fmt.Errorf("no `version = \"...\";` attr found")
+
+	if len(hits) == 0 {
+		return nil, nil, fmt.Errorf("no `version = \"...\";` attr found")
+	}
+
+	// Reject divergent values up front.
+	for _, h := range hits[1:] {
+		if h.oldVal != hits[0].oldVal {
+			return nil, nil, fmt.Errorf(
+				"multiple `version = \"...\";` attrs with different values (%q vs %q); "+
+					"hoist to a shared `let version = \"…\";` binding and `inherit version` into each derivation",
+				hits[0].oldVal, h.oldVal,
+			)
+		}
+	}
+
+	for _, h := range hits {
+		lines[h.lineIdx] = h.prefix + `"` + semver + `"` + h.trail
+	}
+	return []byte(strings.Join(lines, "\n")),
+		[]string{fmt.Sprintf("version: %s → %s (%d line%s)", hits[0].oldVal, semver, len(hits), pluralS(len(hits)))},
+		nil
+}
+
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func init() {

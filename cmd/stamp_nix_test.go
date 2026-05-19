@@ -55,7 +55,9 @@ func TestSetNixVersion_preservesCommentsAndOrder(t *testing.T) {
 	}
 }
 
-func TestSetNixVersion_firstMatchWins(t *testing.T) {
+func TestSetNixVersion_multipleMatchingValuesAllReplaced(t *testing.T) {
+	// D-015: when a flake has multiple derivations sharing the same version
+	// value, hanko rewrites all of them.
 	in := `{
   packages.first = mkDerivation {
     pname = "first";
@@ -63,20 +65,70 @@ func TestSetNixVersion_firstMatchWins(t *testing.T) {
   };
   packages.second = mkDerivation {
     pname = "second";
-    version = "0.2.0";
+    version = "0.1.0";
   };
 }
 `
-	out, _, err := setNixVersion([]byte(in), "9.9.9")
+	out, changes, err := setNixVersion([]byte(in), "9.9.9")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(out)
-	if !strings.Contains(s, `version = "9.9.9";`) {
-		t.Errorf("expected first version rewritten:\n%s", s)
+	count := strings.Count(s, `version = "9.9.9";`)
+	if count != 2 {
+		t.Errorf("expected 2 version lines rewritten, got %d:\n%s", count, s)
 	}
-	if !strings.Contains(s, `version = "0.2.0";`) {
-		t.Errorf("expected second version untouched:\n%s", s)
+	if strings.Contains(s, `version = "0.1.0";`) {
+		t.Errorf("expected no version lines left at old value:\n%s", s)
+	}
+	if len(changes) != 1 {
+		t.Errorf("expected 1 change description (all lines aggregated), got %d: %v", len(changes), changes)
+	}
+	if !strings.Contains(changes[0], "2 lines") {
+		t.Errorf("expected change description to mention 2 lines, got %q", changes[0])
+	}
+}
+
+func TestSetNixVersion_divergentValuesRefused(t *testing.T) {
+	// Two derivations with genuinely different versions → hanko can't pick
+	// one without a config hint. Surface to the user.
+	in := `{
+  packages.first = mkDerivation {
+    version = "0.1.0";
+  };
+  packages.second = mkDerivation {
+    version = "0.2.0";
+  };
+}
+`
+	_, _, err := setNixVersion([]byte(in), "9.9.9")
+	if err == nil {
+		t.Fatal("expected error for divergent versions, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "0.1.0") || !strings.Contains(msg, "0.2.0") {
+		t.Errorf("error should mention both diverging values, got: %s", msg)
+	}
+	if !strings.Contains(msg, "inherit version") {
+		t.Errorf("error should suggest the shared-`let` pattern, got: %s", msg)
+	}
+}
+
+func TestSetNixVersion_singleMatchChangeDescription(t *testing.T) {
+	// Single-match case still produces a clean description without "(1 line)" noise.
+	in := `{
+  version = "1.2.3";
+}
+`
+	_, changes, err := setNixVersion([]byte(in), "1.2.4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(changes))
+	}
+	if !strings.Contains(changes[0], "1 line)") {
+		t.Errorf("expected description to mention 1 line, got %q", changes[0])
 	}
 }
 
