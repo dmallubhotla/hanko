@@ -41,26 +41,30 @@
           ]
         );
       treefmtEval = eachSystem (pkgs: inputs.treefmt-nix.lib.evalModule pkgs ./treefmt.nix);
+      # Stamped by hanko; do not hand-edit (use `just release`).
+      # Hoisted out of the overlay so it's a clear single source of truth even
+      # though hanko currently only exposes one derivation — matches the D-015
+      # shared-`let` pattern recommended for consumers.
+      version = "0.0.1";
+      commonLdflags = [
+        "-s"
+        "-w"
+        "-X"
+        "main.version=${version}"
+        "-X"
+        "main.commit=${self.rev or self.dirtyRev or "unknown"}"
+        "-X"
+        "main.date=${self.lastModifiedDate or "unknown"}"
+      ];
       hankoOverlay = final: _prev: {
-        hanko = final.buildGoApplication rec {
+        hanko = final.buildGoApplication {
           pname = "hanko";
-          version = "0.0.1";
+          inherit version;
           src = ./.;
           modules = ./gomod2nix.toml;
           nativeBuildInputs = [ final.installShellFiles ];
           nativeCheckInputs = [ final.git ];
-          # Self-stamp: feed the flake's own git metadata into hanko's `--version`.
-          # Option-2 dogfood — no semver (that would require a bootstrap hanko); commit + date only.
-          ldflags = [
-            "-s"
-            "-w"
-            "-X"
-            "main.version=${version}"
-            "-X"
-            "main.commit=${self.rev or self.dirtyRev or "unknown"}"
-            "-X"
-            "main.date=${self.lastModifiedDate or "unknown"}"
-          ];
+          ldflags = commonLdflags;
           postInstall = ''
             installShellCompletion --cmd hanko \
               --bash <($out/bin/hanko completion bash) \
@@ -105,6 +109,11 @@
             go-tools
             gopls
             gomod2nix.packages.${pkgs.stdenv.hostPlatform.system}.default
+            # Hanko-on-itself: lets `just release` invoke `hanko stamp nix`
+            # without `go run .`. If hanko's source breaks the build, fall
+            # back to `nix develop --command go run . ...` from outside the
+            # devshell.
+            pkgs.hanko
           ];
           shellHook = ''
             echo "hanko devshell"

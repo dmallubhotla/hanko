@@ -43,8 +43,9 @@ chores:
     nix develop --command go mod tidy
     nix develop --command gomod2nix
 
-# release: bump flake.nix to the computed semver, commit, tag, push.
-# Refuses if the worktree has uncommitted changes going in.
+# release: bump flake.nix to the hanko-computed semver, commit, tag, push.
+# Uses hanko from the devshell (self-dogfood). If hanko's source is broken,
+# fall back: `nix develop --command go run . stamp nix` etc.
 release:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -52,8 +53,8 @@ release:
         echo "worktree dirty; commit or stash before releasing" >&2
         exit 1
     fi
-    nix develop --command go run . stamp nix
-    ver=$(nix develop --command go run . version)
+    nix develop --command hanko stamp nix
+    ver=$(nix develop --command hanko version)
     git add flake.nix
     git commit -m "Release ${ver}"
-    nix develop --command go run . tag --push
+    nix develop --command hanko tag --push
