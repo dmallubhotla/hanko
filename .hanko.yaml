@@ -7,12 +7,10 @@
 #   4. Single release commit
 #   5. Annotated tag (D-002 prefix mirroring)
 #   6. git push --atomic for commit + tag
-
 stamp-targets:
   - path: flake.nix
     format: nix
     key: version
-
 seal:
   commit-message: "Release {semver}"
   push-remote: origin
