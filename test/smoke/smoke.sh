@@ -248,6 +248,34 @@ assert_contains "has -X main.date" "-X main.date=" "$out"
 out=$("$HANKO" --repo "$repo" stamp go-ldflags --package example.com/foo)
 assert_contains "honours --package" "-X example.com/foo.version=1.0.1" "$out"
 
+section "hanko stamp nix"
+nixrepo=$(mkrepo)
+cat >"$nixrepo/flake.nix" <<'EOF'
+{
+  outputs = _: {
+    packages.default = mkDerivation {
+      pname = "demo";
+      version = "0.0.1";
+      src = ./.;
+    };
+  };
+}
+EOF
+git -C "$nixrepo" add flake.nix
+git -C "$nixrepo" commit -q -m one
+git -C "$nixrepo" tag v1.2.3
+commit "$nixrepo" two
+"$HANKO" --repo "$nixrepo" stamp nix >/dev/null
+got=$(grep 'version = ' "$nixrepo/flake.nix")
+assert_contains "flake.nix version bumped" 'version = "1.2.4";' "$got"
+
+# Dry-run leaves the file alone.
+git -C "$nixrepo" checkout -q -- flake.nix
+out=$("$HANKO" --repo "$nixrepo" stamp nix --dry-run)
+assert_contains "dry-run announces change" "0.0.1 → 1.2.4" "$out"
+got=$(grep 'version = ' "$nixrepo/flake.nix")
+assert_contains "dry-run did not write" 'version = "0.0.1";' "$got"
+
 section "hanko stamp docker tags — non-prerelease on main"
 out=$("$HANKO" --repo "$repo" stamp docker tags ghcr.io/example/demo)
 expected="ghcr.io/example/demo:1.0.1
