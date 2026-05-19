@@ -246,6 +246,57 @@ assert_eq "seal created tag" "v1.0.1" "$got_tag"
 got_files=$(git -C "$repoSealTgt" show --stat HEAD --pretty=format: | grep -v '^$' | head -3 | tr -d ' ')
 assert_contains "release commit touched pyproject" "pyproject.toml" "$got_files"
 
+section "hanko seal — end-to-end push to a bare-repo origin"
+# Confirms the push path actually works: bare repo as origin, seal pushes the
+# release commit + tag atomically, both arrive in the bare repo.
+bareRepo=$(mktemp -d)/origin.git
+git init -q --bare "$bareRepo"
+
+repoPush=$(mkrepo)
+git -C "$repoPush" remote add origin "$bareRepo"
+mkdir -p "$repoPush"
+cat >"$repoPush/flake.nix" <<'EOF'
+{
+  outputs = _: {
+    packages.default = mkDerivation {
+      version = "0.0.1";
+    };
+  };
+}
+EOF
+commit_yaml "$repoPush" 'stamp-targets:
+  - path: flake.nix
+    format: nix
+    key: version
+seal:
+  commit-message: "Release {semver}"
+'
+git -C "$repoPush" add flake.nix
+git -C "$repoPush" commit -q -m "add flake"
+git -C "$repoPush" tag v1.0.0
+commit "$repoPush" two
+
+# Run the seal — push to origin (the bare repo).
+out=$("$HANKO" --repo "$repoPush" seal 2>&1)
+assert_contains "seal output names the tag" "v1.0.1" "$out"
+
+# Tag landed in the bare repo.
+got=$(git -C "$bareRepo" tag -l v1.0.1)
+assert_eq "tag pushed to bare origin" "v1.0.1" "$got"
+
+# Tag points at the same commit as the working repo's HEAD.
+expectedSha=$(git -C "$repoPush" rev-parse HEAD)
+gotSha=$(git -C "$bareRepo" rev-list -n1 v1.0.1)
+assert_eq "tag in bare repo points at the release commit" "$expectedSha" "$gotSha"
+
+# Main branch advanced in the bare repo too (commit pushed alongside tag).
+gotMain=$(git -C "$bareRepo" rev-parse main)
+assert_eq "main updated in bare origin" "$expectedSha" "$gotMain"
+
+# The release commit on origin contains the flake.nix bump.
+gotFlake=$(git -C "$bareRepo" show v1.0.1:flake.nix | grep '^      version')
+assert_contains "flake.nix in release commit was bumped" 'version = "1.0.1"' "$gotFlake"
+
 section "hanko seal — refuses dirty"
 repoDirty=$(mkrepo)
 commit "$repoDirty" one
