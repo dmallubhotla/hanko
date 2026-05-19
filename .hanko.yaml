@@ -17,4 +17,4 @@ seal:
   commit-message: "Release {semver}"
   push-remote: origin
   # refuse-prerelease defaults to true; uncomment to seal feature branches:
-  # refuse-prerelease: false
+  refuse-prerelease: false
