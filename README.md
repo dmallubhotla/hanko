@@ -128,6 +128,11 @@ branches:                        # evaluated in order, first regex match wins
     regex: .*
     increment: none
     label: "{branch}"            # → 1.2.3-feature-foo.N
+
+seal:                            # hanko seal — the release rite
+  commit-message: "chore: Release {semver}"  # `chore:` keeps the release commit classified as no-bump under conventional-commits
+  push-remote: origin            # `git push --atomic <remote> <branch> <tag>`; set to "" to disable push
+  refuse-prerelease: true        # mirror D-011; set to false to seal pre-release versions
 ```
 
 The commit count past the latest tag lives **only in build metadata** (`+N.short-sha`), not in the SemVer core.

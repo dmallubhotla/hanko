@@ -106,7 +106,10 @@ type SealConfig struct {
 	PreCommit []string `yaml:"pre-commit,omitempty"`
 
 	// CommitMessage is the commit body for the release commit. Templated
-	// like PreCommit. Default "Release {semver}".
+	// like PreCommit. Default "chore: Release {semver}" — the `chore:` prefix
+	// keeps release commits classified as no-bump under the
+	// conventional-commits strategy (D-016 default), even though the commit
+	// is technically behind the tag and never appears in `<tag>..HEAD`.
 	CommitMessage string `yaml:"commit-message,omitempty"`
 
 	// PushRemote is the git remote to push commit + tag to.
@@ -159,7 +162,7 @@ func Defaults() *Config {
 		// already write `feat:` / `fix:` / `feat!:` style commits.
 		BumpStrategy: "conventional-commits",
 		Seal: SealConfig{
-			CommitMessage:    "Release {semver}",
+			CommitMessage:    "chore: Release {semver}",
 			PushRemote:       &defaultRemote,
 			RefusePrerelease: &refuseTrue,
 		},

@@ -207,7 +207,11 @@ seal:
     - poetry lock --no-update
 
   # commit-message template. `{...}` interpolates fields from the computed Version.
-  commit-message: "Release {semver}"
+  # Default: "chore: Release {semver}". The `chore:` prefix keeps the
+  # release commit classified as no-bump under the conventional-commits
+  # strategy — defensive, even though the release commit is behind the tag
+  # and the next `<tag>..HEAD` range won't see it.
+  commit-message: "chore: Release {semver}"
 
   # remote to push commit + tag to. Same as `hanko tag --remote`.
   push-remote: origin

@@ -279,7 +279,7 @@ commit "$repoSeal" two
 out=$("$HANKO" --repo "$repoSeal" seal --dry-run)
 assert_contains "dry-run shows version" "version:        0.1.1" "$out"
 assert_contains "dry-run shows tag" "tag name:       v0.1.1" "$out"
-assert_contains "dry-run shows commit message" "Release 0.1.1" "$out"
+assert_contains "dry-run shows default commit message with chore prefix" "chore: Release 0.1.1" "$out"
 assert_contains "dry-run expands hook template" "echo hook saw 0.1.1" "$out"
 # Confirm nothing was committed or tagged.
 tags_after=$(git -C "$repoSeal" tag -l | tr '\n' ',')
