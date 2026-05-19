@@ -72,6 +72,16 @@
       formatter = eachSystem (pkgs: treefmtEval.${pkgs.stdenv.hostPlatform.system}.config.build.wrapper);
       checks = eachSystem (pkgs: {
         formatting = treefmtEval.${pkgs.stdenv.hostPlatform.system}.config.build.check self;
+        smoke =
+          pkgs.runCommand "hanko-smoke"
+            {
+              nativeBuildInputs = [ pkgs.git ];
+            }
+            ''
+              export HOME=$TMPDIR
+              bash ${./test/smoke/smoke.sh} ${pkgs.hanko}/bin/hanko
+              touch $out
+            '';
       });
 
       devShells = eachSystem (pkgs: {
