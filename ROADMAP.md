@@ -260,8 +260,8 @@ Asking the user to run two tools to answer one question is poor ergonomics.
 - [x] Worktree behaviour: linked worktrees (`git worktree add`) work transparently because `git rev-parse --git-dir` returns the per-worktree git dir. Smoke-tested including mid-operation refusal in a linked worktree.
 - [x] Long-tail git states: rebase / bisect / merge / cherry-pick / revert in progress all refused with a clear error pointing at `git <op> --abort` (D-017).
 - Cross-platform CI: matrix of `linux/x86_64`, `linux/arm64`, `darwin/arm64`, `windows/x86_64` for at least the smoke tests.
-- Golangci-lint clean.
-  Coverage > 70% on `internal/version`.
+- [x] Golangci-lint clean (0 issues across `./...`); wired as `checks.golangci-lint` so it runs under `nix flake check`.
+- [x] Coverage > 70% on `internal/version` (currently 82.4%); every `internal/*` package above 70% except `internal/logging` (small, 0%).
 - **Smoke-test reorg.**
   `test/smoke/smoke.sh` is one ~700-line shell file with `section "…"` headers.
   Approaching the point where it's painful to navigate.

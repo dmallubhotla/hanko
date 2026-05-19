@@ -98,6 +98,20 @@
               bash ${./test/smoke/smoke.sh} ${pkgs.hanko}/bin/hanko
               touch $out
             '';
+        # Lint as a check: override the hanko derivation to swap go test for
+        # golangci-lint in checkPhase. Reuses the vendored module setup from
+        # goConfigHook so no network is needed inside the sandbox.
+        golangci-lint = pkgs.hanko.overrideAttrs (old: {
+          pname = "hanko-golangci-lint";
+          nativeCheckInputs = (old.nativeCheckInputs or [ ]) ++ [ pkgs.golangci-lint ];
+          doCheck = true;
+          checkPhase = ''
+            runHook preCheck
+            export GOLANGCI_LINT_CACHE=$TMPDIR/golangci-lint-cache
+            golangci-lint run --timeout 5m ./...
+            runHook postCheck
+          '';
+        });
       });
 
       devShells = eachSystem (pkgs: {

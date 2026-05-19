@@ -323,11 +323,18 @@ func parseSemverTag(tag, prefixRegex string) (semverBase, bool) {
 	if m == nil {
 		return semverBase{0, 0, 0}, false
 	}
-	var b semverBase
-	fmt.Sscanf(m[1], "%d", &b.major)
-	fmt.Sscanf(m[2], "%d", &b.minor)
-	fmt.Sscanf(m[3], "%d", &b.patch)
+	// semverCoreRE only matches digits so Atoi can't fail here.
+	b := semverBase{
+		major: atoiOrZero(m[1]),
+		minor: atoiOrZero(m[2]),
+		patch: atoiOrZero(m[3]),
+	}
 	return b, true
+}
+
+func atoiOrZero(s string) int {
+	n, _ := strconv.Atoi(s)
+	return n
 }
 
 // stripTagPrefix returns the portion of `tag` after the configured
