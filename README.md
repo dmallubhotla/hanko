@@ -147,6 +147,16 @@ That keeps the SemVer slot honest — it names a release, doesn't count commits.
 To override any of these, create `.hanko.yaml` at the repo root with just the keys you want to change — the rest fall back to defaults.
 See [`docs/hanko-yaml.md`](./docs/hanko-yaml.md) for the full schema reference.
 
+### `--repo` scope
+
+`--repo <path>` operates **only on the named repo**:
+
+- **Linked git worktrees** (`git worktree add …`) are supported: hanko reads the worktree's own branch / dirty / in-progress state.
+  The shared `.git` dir is resolved via `git rev-parse --git-dir` so per-worktree markers (MERGE_HEAD, rebase-merge/, etc.) work correctly.
+- **Nested git repos / submodules are not traversed.**
+  Tags, commits, and dirty state from inside a submodule are not visible to `hanko --repo <parent>`.
+  Point `--repo` at the submodule directly to compute *its* version standalone.
+
 ## Build & develop
 
 This repo uses Nix + `gomod2nix`.

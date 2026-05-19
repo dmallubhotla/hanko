@@ -255,12 +255,9 @@ Asking the user to run two tools to answer one question is poor ergonomics.
 
 **Goal:** stop hand-waving the edge cases.
 
-- Shallow-clone detection.
-  If `git rev-parse --is-shallow-repository` is true, warn loudly and refuse to compute (configurable).
-  GitVersion's silent miscount on shallow clones is the bug we most want to avoid.
-- Submodule behaviour: `hanko --repo path` always operates on the named repo, never traverses submodules.
-  Document.
-- Worktree behaviour: support `git worktree`-style auxiliary worktrees.
+- [x] Shallow-clone detection (D-004). `on-shallow: refuse|warn|ignore` config knob lives in `.hanko.yaml`.
+- [x] Submodule behaviour documented: `--repo` operates only on the named repo, no recursion. Smoke-tested with a nested git repo whose tags must not leak to the parent.
+- [x] Worktree behaviour: linked worktrees (`git worktree add`) work transparently because `git rev-parse --git-dir` returns the per-worktree git dir. Smoke-tested including mid-operation refusal in a linked worktree.
 - [x] Long-tail git states: rebase / bisect / merge / cherry-pick / revert in progress all refused with a clear error pointing at `git <op> --abort` (D-017).
 - Cross-platform CI: matrix of `linux/x86_64`, `linux/arm64`, `darwin/arm64`, `windows/x86_64` for at least the smoke tests.
 - Golangci-lint clean.

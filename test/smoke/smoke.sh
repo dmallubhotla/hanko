@@ -121,6 +121,59 @@ commit_yaml() {
   git -C "$dir" commit -q -m "add hanko config"
 }
 
+section "hanko version — works in linked git worktrees"
+# `git worktree add` attaches a second working dir to the same .git. hanko
+# should treat it like a normal repo — same tag history, branch state from
+# *this* worktree, dirty detection scoped to it.
+repoWT=$(mkrepo)
+commit "$repoWT" one
+git -C "$repoWT" tag v1.0.0
+commit "$repoWT" two
+git -C "$repoWT" branch feature/wt
+wtDir=$(mktemp -d)/linked
+git -C "$repoWT" worktree add -q "$wtDir" feature/wt
+# Main worktree's view: on main, past v1.0.0.
+got=$("$HANKO" --repo "$repoWT" version)
+assert_eq "main worktree → 1.0.1" "1.0.1" "$got"
+# Linked worktree's view: on feature/wt branch from the same starting commit.
+# Feature branch → prerelease shape.
+got=$("$HANKO" --repo "$wtDir" version)
+assert_contains "linked worktree picks up its own branch" "feature-wt" "$got"
+# In-progress detection works in linked worktree too — git keeps per-worktree
+# markers in .git/worktrees/<name>/, which `rev-parse --git-dir` resolves to.
+: >"$(git -C "$wtDir" rev-parse --git-dir)/MERGE_HEAD"
+set +e
+out=$("$HANKO" --repo "$wtDir" version 2>&1)
+code=$?
+set -e
+assert_exit "refuses mid-operation in worktree" 1 "$code"
+assert_contains "names the operation" "merge in progress" "$out"
+
+section "hanko version — does not recurse into nested git repos"
+# Submodule promise: --repo <parent> reads only the parent's git state, never
+# the inner repo's tags / history. (We don't bother with `git submodule add`
+# — a bare nested .git tree is enough to exercise the boundary.)
+repoOuter=$(mkrepo)
+commit "$repoOuter" outer-one
+git -C "$repoOuter" tag v1.0.0
+commit "$repoOuter" outer-two
+sub="$repoOuter/sub"
+git init -q "$sub"
+git -C "$sub" config user.email t@e.invalid
+git -C "$sub" config user.name t
+git -C "$sub" config commit.gpgsign false
+git -C "$sub" config tag.gpgsign false
+echo a >"$sub/a"
+git -C "$sub" add a
+git -C "$sub" commit -q -m sub-one
+git -C "$sub" tag v9.9.9
+# Outer doesn't see inner's tags.
+got=$("$HANKO" --repo "$repoOuter" version)
+assert_eq "outer ignores inner tags" "1.0.1" "$got"
+# Pointing --repo at the inner gets the inner's view, standalone.
+got=$("$HANKO" --repo "$sub" version)
+assert_eq "inner is its own repo" "9.9.9" "$got"
+
 section "hanko version — refuses when a git operation is in progress"
 # Detection is path-based (MERGE_HEAD, rebase-merge/, etc.) so we can simulate
 # the state by touching the marker file without actually triggering a merge
