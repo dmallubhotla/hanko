@@ -41,6 +41,12 @@ type Config struct {
 	// "refuse" | "warn" | "ignore".
 	OnShallow string `yaml:"on-shallow,omitempty"`
 
+	// Glob patterns passed to `git describe --match` for tag discovery.
+	// Sibling to TagPrefix: the regex extracts a semver from a found tag, the
+	// globs decide which tags are eligible to be found in the first place.
+	// Both default to the canonical `v`-prefix-or-bare shapes.
+	TagMatch []string `yaml:"tag-match,omitempty"`
+
 	// Branch policy, evaluated in declaration order, first match wins.
 	// Empty/unset → use Defaults' list.
 	Branches []BranchPolicy `yaml:"branches,omitempty"`
@@ -77,6 +83,10 @@ func Defaults() *Config {
 		DirtySuffix:    &t,
 		InitialVersion: "0.1.0",
 		OnShallow:      "refuse",
+		TagMatch: []string{
+			`v[0-9]*.[0-9]*.[0-9]*`,
+			`[0-9]*.[0-9]*.[0-9]*`,
+		},
 		Branches: []BranchPolicy{
 			{Name: "mainline", Regex: `^(main|master)$`, IsMainline: true, Increment: "patch", Label: ""},
 			{Name: "release", Regex: `^release/(\d+)\.(\d+)$`, IsMainline: true, Increment: "patch", Label: "", MajorFrom: 1, MinorFrom: 2},
@@ -147,6 +157,9 @@ func mergeOnDefaults(user *Config) *Config {
 	}
 	if user.OnShallow != "" {
 		out.OnShallow = user.OnShallow
+	}
+	if len(user.TagMatch) > 0 {
+		out.TagMatch = user.TagMatch
 	}
 	if len(user.Branches) > 0 {
 		out.Branches = user.Branches

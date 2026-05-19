@@ -7,9 +7,18 @@ import (
 	"github.com/dmallubhotla/hanko/internal/testrepo"
 )
 
+// defaultGlobs mirrors config.Defaults().TagMatch — keeps gitinfo tests
+// independent of the config package while exercising the same shape.
+func defaultGlobs() []string {
+	return []string{
+		`v[0-9]*.[0-9]*.[0-9]*`,
+		`[0-9]*.[0-9]*.[0-9]*`,
+	}
+}
+
 func TestRead_emptyRepoReturnsErrNoCommits(t *testing.T) {
 	r := testrepo.New(t)
-	_, err := Read(r.Dir())
+	_, err := Read(r.Dir(), defaultGlobs())
 	if !errors.Is(err, ErrNoCommits) {
 		t.Fatalf("want ErrNoCommits, got %v", err)
 	}
@@ -17,7 +26,7 @@ func TestRead_emptyRepoReturnsErrNoCommits(t *testing.T) {
 
 func TestRead_singleCommitNoTag(t *testing.T) {
 	r := testrepo.New(t).Commit("initial")
-	info, err := Read(r.Dir())
+	info, err := Read(r.Dir(), defaultGlobs())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +65,7 @@ func TestRead_tagAndCommitsSince(t *testing.T) {
 		Tag("v1.2.3").
 		Commit("two").
 		Commit("three")
-	info, err := Read(r.Dir())
+	info, err := Read(r.Dir(), defaultGlobs())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +79,7 @@ func TestRead_tagAndCommitsSince(t *testing.T) {
 
 func TestRead_dirtyWorktree(t *testing.T) {
 	r := testrepo.New(t).Commit("one").WriteFile("untracked", "hi")
-	info, err := Read(r.Dir())
+	info, err := Read(r.Dir(), defaultGlobs())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +91,7 @@ func TestRead_dirtyWorktree(t *testing.T) {
 func TestRead_detachedHead(t *testing.T) {
 	r := testrepo.New(t).Commit("one").Commit("two")
 	r.Git("checkout", "-q", "HEAD~1")
-	info, err := Read(r.Dir())
+	info, err := Read(r.Dir(), defaultGlobs())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +105,7 @@ func TestRead_detachedHead(t *testing.T) {
 
 func TestRead_featureBranch(t *testing.T) {
 	r := testrepo.New(t).Commit("one").Tag("v1.0.0").Checkout("feature/foo").Commit("two")
-	info, err := Read(r.Dir())
+	info, err := Read(r.Dir(), defaultGlobs())
 	if err != nil {
 		t.Fatal(err)
 	}

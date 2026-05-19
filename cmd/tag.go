@@ -30,7 +30,7 @@ var tagCmd = &cobra.Command{
 	Short:   "Create a git tag for the computed version",
 	GroupID: "stamp",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		info, err := resolveInfo()
+		info, cfg, err := resolveInfo()
 		if err != nil {
 			return err
 		}
@@ -57,7 +57,7 @@ var tagCmd = &cobra.Command{
 			}
 			name = tagInitial
 		} else {
-			v, err := version.Compute(info)
+			v, err := version.Compute(info, cfg)
 			if err != nil {
 				return fmt.Errorf("compute version: %w", err)
 			}

@@ -3,6 +3,7 @@ package version
 import (
 	"testing"
 
+	"github.com/dmallubhotla/hanko/internal/config"
 	"github.com/dmallubhotla/hanko/internal/gitinfo"
 )
 
@@ -159,7 +160,7 @@ func TestCompute(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			v, err := Compute(tc.info)
+			v, err := Compute(tc.info, config.Defaults())
 			if err != nil {
 				t.Fatal(err)
 			}

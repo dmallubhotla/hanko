@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/dmallubhotla/hanko/internal/config"
 	"github.com/dmallubhotla/hanko/internal/gitinfo"
 	"github.com/dmallubhotla/hanko/internal/version"
 )
@@ -13,30 +14,41 @@ import (
 var ErrShallow = errors.New("shallow clone (re-clone without --depth, or use `with: { fetch-depth: 0 }` in GHA)")
 
 // resolveVersion is the shared prelude used by every command that needs a computed version.
-// It reads the repo state, refuses if the repo is shallow, then runs version.Compute.
+// It loads `.hanko.yaml` (defaults if absent), reads the repo state, refuses
+// if the repo is shallow, then runs version.Compute.
 func resolveVersion() (version.Version, error) {
-	info, err := gitinfo.Read(repoPath)
+	cfg, err := config.Load(repoPath)
+	if err != nil {
+		return version.Version{}, fmt.Errorf("load config: %w", err)
+	}
+	info, err := gitinfo.Read(repoPath, cfg.TagMatch)
 	if err != nil {
 		return version.Version{}, fmt.Errorf("read git info: %w", err)
 	}
 	if info.Shallow {
 		return version.Version{}, ErrShallow
 	}
-	v, err := version.Compute(info)
+	v, err := version.Compute(info, cfg)
 	if err != nil {
 		return version.Version{}, fmt.Errorf("compute version: %w", err)
 	}
 	return v, nil
 }
 
-// resolveInfo is the read-only variant used by `hanko tag`, which needs the gitinfo for dirty / detached checks before computing.
-func resolveInfo() (gitinfo.Info, error) {
-	info, err := gitinfo.Read(repoPath)
+// resolveInfo is the read-only variant used by `hanko tag`, which needs the
+// gitinfo for dirty / detached checks before computing. Returns the loaded
+// config alongside so the caller doesn't have to re-read it.
+func resolveInfo() (gitinfo.Info, *config.Config, error) {
+	cfg, err := config.Load(repoPath)
 	if err != nil {
-		return gitinfo.Info{}, fmt.Errorf("read git info: %w", err)
+		return gitinfo.Info{}, nil, fmt.Errorf("load config: %w", err)
+	}
+	info, err := gitinfo.Read(repoPath, cfg.TagMatch)
+	if err != nil {
+		return gitinfo.Info{}, nil, fmt.Errorf("read git info: %w", err)
 	}
 	if info.Shallow {
-		return gitinfo.Info{}, ErrShallow
+		return gitinfo.Info{}, nil, ErrShallow
 	}
-	return info, nil
+	return info, cfg, nil
 }

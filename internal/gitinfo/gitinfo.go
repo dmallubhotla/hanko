@@ -32,11 +32,16 @@ type Info struct {
 // There is no meaningful version to compute in that state.
 var ErrNoCommits = errors.New("repository has no commits")
 
-// Read collects the git info for the repo rooted at path. Errors are returned
-// only when git itself is broken or the repo has no commits; "absent but
-// expected" states (no tags, detached HEAD) are surfaced as empty fields or
-// booleans, not errors.
-func Read(path string) (Info, error) {
+// Read collects the git info for the repo rooted at path.
+//
+// `tagMatchGlobs` filters which tags are eligible to be returned by
+// `git describe --match`. Pass `config.Defaults().TagMatch` for the
+// canonical `v`-prefix-or-bare set, or `nil` to skip filtering entirely.
+//
+// Errors are returned only when git itself is broken or the repo has no
+// commits; "absent but expected" states (no tags, detached HEAD) are
+// surfaced as empty fields or booleans, not errors.
+func Read(path string, tagMatchGlobs []string) (Info, error) {
 	info := Info{}
 
 	// HEAD must resolve, or there's nothing to do. Distinguish "no commits"
@@ -65,11 +70,15 @@ func Read(path string) (Info, error) {
 	}
 
 	// Latest reachable tag matching a semver shape.
-	// We pass both `v`-prefixed and bare-numeric patterns so describe skips marker tags like `release-frozen` at the source.
-	// `describe` errors if no matching tag is reachable; that's a normal state, not a failure (D-012).
-	if out, err := run(path, "describe", "--tags", "--abbrev=0",
-		"--match", "v[0-9]*.[0-9]*.[0-9]*",
-		"--match", "[0-9]*.[0-9]*.[0-9]*"); err == nil {
+	// `tagMatchGlobs` are passed through to `describe --match` so we skip
+	// marker tags (e.g. `release-frozen`) at the source.
+	// `describe` errors if no matching tag is reachable; that's a normal
+	// state, not a failure (D-012).
+	describeArgs := []string{"describe", "--tags", "--abbrev=0"}
+	for _, g := range tagMatchGlobs {
+		describeArgs = append(describeArgs, "--match", g)
+	}
+	if out, err := run(path, describeArgs...); err == nil {
 		info.LatestTag = out
 	}
 

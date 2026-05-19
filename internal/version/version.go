@@ -1,14 +1,17 @@
 // Package version computes a semantic version from git history.
 //
-// The branch policy applied here is the M1 default; configurability via
-// .hanko.yaml is a later milestone. See ROADMAP.md.
+// The branch-policy evaluator reads from a config.Config — callers pass
+// config.Defaults() when no `.hanko.yaml` is loaded. The defaults reproduce
+// M1's hard-coded behaviour byte-for-byte.
 package version
 
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
+	"github.com/dmallubhotla/hanko/internal/config"
 	"github.com/dmallubhotla/hanko/internal/gitinfo"
 )
 
@@ -32,25 +35,19 @@ type Version struct {
 	IsPreRelease bool `json:"isPreRelease"`
 }
 
-// Compute derives a version from the given gitinfo snapshot.
+// Compute derives a version from the given gitinfo snapshot, evaluated
+// against the supplied config. Pass config.Defaults() when no `.hanko.yaml`
+// is loaded — that path reproduces M1's behaviour exactly.
 //
-// Branch policy (M1 defaults, see ROADMAP.md):
-//
-//   - main / master → <major>.<minor>.<patch+commits>
-//   - release/x.y   → <x>.<y>.<patch+commits>
-//   - hotfix/*      → <major>.<minor>.<patch+1>-hotfix.<commits>
-//   - everything    → <base>-<sanitized-branch>.<commits>  (pre-release)
-//
-// When no tag is reachable the base is 0.1.0 and a pre-release suffix is always emitted — the absence of a tag is itself a signal worth surfacing.
-//
-// D-001: a detached HEAD pointing at a tagged commit emits the tag's version verbatim.
-// This is the canonical GHA tag-push case ("build the release at this tag"); the branch context is genuinely ambiguous from git alone but the intent is clear.
-func Compute(info gitinfo.Info) (Version, error) {
+// D-001: a detached HEAD pointing at a tagged commit emits the tag's version
+// verbatim. This special case is invoked-policy, not branch-policy, so it
+// short-circuits before the config-driven branch evaluator.
+func Compute(info gitinfo.Info, cfg *config.Config) (Version, error) {
 	if info.Detached && info.LatestTag != "" && info.CommitsSinceTag == 0 {
-		return versionFromTagAtHead(info), nil
+		return versionFromTagAtHead(info, cfg.TagPrefix), nil
 	}
 
-	base, _ := parseSemverTag(info.LatestTag)
+	base, _ := parseSemverTag(info.LatestTag, cfg.TagPrefix)
 	branch := info.Branch
 	if branch == "" {
 		branch = "detached"
@@ -65,49 +62,21 @@ func Compute(info gitinfo.Info) (Version, error) {
 
 	n := info.CommitsSinceTag
 
-	switch {
-	case info.LatestTag == "":
-		// No tag in repo at all. 0.1.0 base, always a pre-release until a
-		// human creates the first tag.
-		v.Major, v.Minor, v.Patch = 0, 1, 0
+	if info.LatestTag == "" {
+		// No tag in repo at all. Use initial-version as base; always a
+		// pre-release until a human creates the first tag (or runs
+		// `hanko tag --initial`).
+		initial, _ := parseSemverTag(cfg.InitialVersion, cfg.TagPrefix)
+		v.Major, v.Minor, v.Patch = initial.major, initial.minor, initial.patch
 		v.PreRelease = fmt.Sprintf("%s.%d", sanitizeBranch(branch), n)
-
-	case isMainline(branch):
-		v.Major = base.major
-		v.Minor = base.minor
-		v.Patch = base.patch + n
-
-	case isReleaseBranch(branch):
-		x, y, ok := parseReleaseBranch(branch)
-		if !ok {
-			// Malformed `release/...` — fall through to feature-branch
-			// handling. Decision D-003 territory.
-			v.Major = base.major
-			v.Minor = base.minor
-			v.Patch = base.patch
-			v.PreRelease = fmt.Sprintf("%s.%d", sanitizeBranch(branch), n)
-			break
-		}
-		v.Major = x
-		v.Minor = y
-		v.Patch = base.patch + n
-
-	case isHotfixBranch(branch):
-		v.Major = base.major
-		v.Minor = base.minor
-		v.Patch = base.patch + 1
-		v.PreRelease = fmt.Sprintf("hotfix.%d", n)
-
-	default:
-		v.Major = base.major
-		v.Minor = base.minor
-		v.Patch = base.patch
-		v.PreRelease = fmt.Sprintf("%s.%d", sanitizeBranch(branch), n)
+	} else {
+		policy, captures := matchBranch(cfg.Branches, branch)
+		applyPolicy(&v, policy, captures, base, branch, n)
 	}
 
 	v.IsPreRelease = v.PreRelease != ""
 	v.BuildMetadata = fmt.Sprintf("%d.%s", n, info.ShortSha)
-	if info.Dirty {
+	if info.Dirty && dirtySuffixEnabled(cfg) {
 		v.BuildMetadata += ".dirty"
 	}
 
@@ -156,13 +125,14 @@ func (v Version) AsGHA() map[string]string {
 
 // versionFromTagAtHead returns the Version for the D-001 special case: HEAD is detached AND there is a tag pointing at HEAD.
 // We emit the tag's version exactly (including prerelease / build-metadata suffix), rather than running the branch-policy fallback that would mark it as a "detached" pre-release.
-func versionFromTagAtHead(info gitinfo.Info) Version {
-	base, _ := parseSemverTag(info.LatestTag)
+func versionFromTagAtHead(info gitinfo.Info, prefixRegex string) Version {
+	base, _ := parseSemverTag(info.LatestTag, prefixRegex)
 
-	// Extract the substring of the tag after `v?<M.m.p>`.
-	tag := strings.TrimPrefix(info.LatestTag, "v")
+	// Strip the prefix the same way parseSemverTag did, then peel off the
+	// numeric core to leave just the pre-release / build-metadata suffix.
+	stripped := stripTagPrefix(info.LatestTag, prefixRegex)
 	corePrefix := fmt.Sprintf("%d.%d.%d", base.major, base.minor, base.patch)
-	suffix := strings.TrimPrefix(tag, corePrefix)
+	suffix := strings.TrimPrefix(stripped, corePrefix)
 
 	pre, buildMeta := "", ""
 	if rest, ok := strings.CutPrefix(suffix, "-"); ok {
@@ -203,17 +173,112 @@ func versionFromTagAtHead(info gitinfo.Info) Version {
 	return v
 }
 
+// matchBranch walks the configured branch policies in order, returns the
+// first whose regex matches the branch (plus that regex's capture groups,
+// captures[0] = full match). Returns a permissive fallback if nothing matched.
+func matchBranch(policies []config.BranchPolicy, branch string) (config.BranchPolicy, []string) {
+	for _, p := range policies {
+		re, err := regexp.Compile(p.Regex)
+		if err != nil {
+			continue
+		}
+		m := re.FindStringSubmatch(branch)
+		if m != nil {
+			return p, m
+		}
+	}
+	return config.BranchPolicy{Increment: "none", Label: "{branch}"}, []string{branch}
+}
+
+// applyPolicy fills v.{Major,Minor,Patch,PreRelease} based on the matched
+// policy. Two shapes: mainline (commits advance the core), non-mainline
+// (static bump + pre-release counter from commit count).
+func applyPolicy(v *Version, p config.BranchPolicy, captures []string, base semverBase, branch string, n int) {
+	major, minor, patch := base.major, base.minor, base.patch
+
+	// Capture-group bindings (1-indexed; captures[0] is full match).
+	if p.MajorFrom > 0 && p.MajorFrom < len(captures) {
+		if x, err := strconv.Atoi(captures[p.MajorFrom]); err == nil {
+			major = x
+		}
+	}
+	if p.MinorFrom > 0 && p.MinorFrom < len(captures) {
+		if y, err := strconv.Atoi(captures[p.MinorFrom]); err == nil {
+			minor = y
+		}
+	}
+
+	if p.IsMainline {
+		// Continuous-delivery: commits advance the core; no pre-release counter unless Label is set.
+		switch p.Increment {
+		case "minor":
+			minor += n
+			patch = 0
+		case "major":
+			major += n
+			minor = 0
+			patch = 0
+		default: // "patch" and ""
+			patch += n
+		}
+	} else {
+		// Static bump (one-time), pre-release counter carries the commit count.
+		switch p.Increment {
+		case "patch":
+			patch++
+		case "minor":
+			minor++
+			patch = 0
+		case "major":
+			major++
+			minor = 0
+			patch = 0
+			// "none" / "" → no bump
+		}
+	}
+
+	v.Major, v.Minor, v.Patch = major, minor, patch
+	if p.Label != "" {
+		v.PreRelease = fmt.Sprintf("%s.%d", expandLabel(p.Label, branch, captures), n)
+	}
+}
+
+// expandLabel substitutes `{branch}` and `{N}` (capture-group references)
+// in a label template.
+var captureGroupRE = regexp.MustCompile(`\{(\d+)\}`)
+
+func expandLabel(template, branch string, captures []string) string {
+	s := strings.ReplaceAll(template, "{branch}", sanitizeBranch(branch))
+	s = captureGroupRE.ReplaceAllStringFunc(s, func(m string) string {
+		idx, _ := strconv.Atoi(m[1 : len(m)-1])
+		if idx >= 0 && idx < len(captures) {
+			return captures[idx]
+		}
+		return m
+	})
+	return s
+}
+
+func dirtySuffixEnabled(cfg *config.Config) bool {
+	return cfg.DirtySuffix == nil || *cfg.DirtySuffix
+}
+
 type semverBase struct{ major, minor, patch int }
 
-// tagRE matches `v?MAJOR.MINOR.PATCH` and ignores any pre-release / build
-// metadata suffix on the tag itself. M1 only consumes the numeric base.
-var tagRE = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)`)
+// semverCoreRE pulls `MAJOR.MINOR.PATCH` out of a string that's already had
+// the prefix regex applied. Pre-release / build metadata on the tag itself
+// are deliberately ignored at this layer.
+var semverCoreRE = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)`)
 
-func parseSemverTag(tag string) (semverBase, bool) {
+// parseSemverTag strips the configured prefix from `tag`, then extracts
+// MAJOR.MINOR.PATCH from what remains. Returns the zero base when either
+// step fails — callers downgrade to no-tag treatment in that case.
+func parseSemverTag(tag, prefixRegex string) (semverBase, bool) {
 	if tag == "" {
 		return semverBase{0, 0, 0}, false
 	}
-	m := tagRE.FindStringSubmatch(tag)
+	stripped := stripTagPrefix(tag, prefixRegex)
+	m := semverCoreRE.FindStringSubmatch(stripped)
 	if m == nil {
 		return semverBase{0, 0, 0}, false
 	}
@@ -224,26 +289,26 @@ func parseSemverTag(tag string) (semverBase, bool) {
 	return b, true
 }
 
-func isMainline(branch string) bool {
-	return branch == "main" || branch == "master"
-}
-
-var releaseRE = regexp.MustCompile(`^release/(\d+)\.(\d+)$`)
-
-func isReleaseBranch(b string) bool { return releaseRE.MatchString(b) }
-
-func parseReleaseBranch(b string) (int, int, bool) {
-	m := releaseRE.FindStringSubmatch(b)
-	if m == nil {
-		return 0, 0, false
+// stripTagPrefix returns the portion of `tag` after the configured
+// prefix-regex's first capture group consumes its prefix. If the regex
+// doesn't match or is empty/broken, the input is returned unchanged.
+func stripTagPrefix(tag, prefixRegex string) string {
+	if prefixRegex == "" {
+		return tag
 	}
-	var x, y int
-	fmt.Sscanf(m[1], "%d", &x)
-	fmt.Sscanf(m[2], "%d", &y)
-	return x, y, true
+	re, err := regexp.Compile(prefixRegex)
+	if err != nil {
+		return tag
+	}
+	m := re.FindStringSubmatch(tag)
+	if m == nil {
+		return tag
+	}
+	if len(m) >= 2 {
+		return m[1]
+	}
+	return m[0]
 }
-
-func isHotfixBranch(b string) bool { return strings.HasPrefix(b, "hotfix/") }
 
 // sanitizeBranch lowercases and replaces runs of non-alphanumerics with a
 // single `-`. Matches GitVersion's behaviour closely enough for tag-portable
