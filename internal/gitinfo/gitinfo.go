@@ -7,7 +7,9 @@ package gitinfo
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -30,6 +32,10 @@ type Info struct {
 	// Read so the conventional-commits bump strategy can read subject lines
 	// without a second gitinfo pass.
 	Commits []Commit
+	// InProgress names a long-running git operation if one is mid-flight:
+	// "merge" / "rebase" / "cherry-pick" / "revert" / "bisect". Empty when
+	// the repo is in a normal state. Honest reporting; callers refuse.
+	InProgress string
 }
 
 // ErrNoCommits indicates the repo has been initialised but has no commits.
@@ -118,7 +124,40 @@ func Read(path string, tagMatchGlobs []string) (Info, error) {
 		info.Commits = cs
 	}
 
+	// Detect long-running git operations in progress. `git rev-parse
+	// --git-dir` returns the correct path for both regular checkouts and
+	// linked worktrees.
+	if gd, err := run(path, "rev-parse", "--git-dir"); err == nil {
+		if !filepath.IsAbs(gd) {
+			gd = filepath.Join(path, gd)
+		}
+		info.InProgress = detectInProgress(gd)
+	}
+
 	return info, nil
+}
+
+// detectInProgress returns the name of any git operation mid-flight, by
+// looking for the well-known marker paths git creates. Empty string when the
+// repo is in a normal state.
+func detectInProgress(gitDir string) string {
+	checks := []struct {
+		path, name string
+	}{
+		// Order: most user-visible first.
+		{"MERGE_HEAD", "merge"},
+		{"rebase-merge", "rebase"},
+		{"rebase-apply", "rebase"},
+		{"CHERRY_PICK_HEAD", "cherry-pick"},
+		{"REVERT_HEAD", "revert"},
+		{"BISECT_LOG", "bisect"},
+	}
+	for _, c := range checks {
+		if _, err := os.Stat(filepath.Join(gitDir, c.path)); err == nil {
+			return c.name
+		}
+	}
+	return ""
 }
 
 // Commit is one entry from `git log <range>` — subject + body.

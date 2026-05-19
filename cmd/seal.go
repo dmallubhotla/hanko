@@ -56,6 +56,9 @@ var sealCmd = &cobra.Command{
 		if info.Shallow {
 			return ErrShallow
 		}
+		if info.InProgress != "" {
+			return errInProgress(info.InProgress)
+		}
 
 		// Pre-flight: dirty worktree means the release commit would contain
 		// pre-existing dirt. Hooks introduce dirt by design; that's fine —

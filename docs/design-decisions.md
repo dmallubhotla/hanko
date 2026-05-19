@@ -81,6 +81,13 @@ Add to this as you go; revisit collectively rather than litigating each one in i
   Side effect: `mode: continuous-delivery` config key is removed; it had no effect, since the +n behaviour it named is gone.
   Future bump strategies (conventional commits, manual override) will choose the *direction* of the +1 bump, not its magnitude.
 
+- **D-017 — Refuse on long-running git operations in progress.**
+  `merge`, `rebase`, `cherry-pick`, `revert`, `bisect` mid-flight all leave HEAD in a transient state that doesn't represent a real release candidate.
+  Continuing through any of them produces a confusing version — same bug class D-004 prevents for shallow clones.
+  Detection is path-based: `MERGE_HEAD` / `rebase-merge/` / `rebase-apply/` / `CHERRY_PICK_HEAD` / `REVERT_HEAD` / `BISECT_LOG` inside the `.git` dir (worktree-aware via `git rev-parse --git-dir`).
+  No config knob — refusing is the only honest answer.
+  If a user genuinely needs to compute a version mid-operation, the right answer is `git <op> --abort` (or `--continue`), not a `--force` flag.
+
 - **D-015 — `stamp nix` rewrites every `version = "X";` line sharing the current value.**
   Surfaced by kestrel (first real consumer): its `flake.nix` exposes both `kest` and `kestci` derivations, each a `buildGoApplication` with its own `version = "..."`.
   First-match-wins silently left the second derivation on the previous release's version.

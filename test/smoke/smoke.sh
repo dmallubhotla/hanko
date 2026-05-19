@@ -121,6 +121,27 @@ commit_yaml() {
   git -C "$dir" commit -q -m "add hanko config"
 }
 
+section "hanko version — refuses when a git operation is in progress"
+# Detection is path-based (MERGE_HEAD, rebase-merge/, etc.) so we can simulate
+# the state by touching the marker file without actually triggering a merge
+# conflict. Mirrors the unit tests in internal/gitinfo/inprogress_test.go.
+repoInProgress=$(mkrepo)
+commit "$repoInProgress" one
+git -C "$repoInProgress" tag v1.0.0
+commit "$repoInProgress" two
+: >"$repoInProgress/.git/MERGE_HEAD"
+set +e
+out=$("$HANKO" --repo "$repoInProgress" version 2>&1)
+code=$?
+set -e
+assert_exit "exit code" 1 "$code"
+assert_contains "error names the operation" "merge in progress" "$out"
+assert_contains "error suggests abort" "--abort" "$out"
+# After cleaning up, version computes normally.
+rm "$repoInProgress/.git/MERGE_HEAD"
+got=$("$HANKO" --repo "$repoInProgress" version)
+assert_eq "version works after the operation completes" "1.0.1" "$got"
+
 section "hanko stamp (no args) — declarative stamp-targets"
 repoTgt=$(mkrepo)
 # Build the files we'll stamp BEFORE the tag so the version-on-mainline math

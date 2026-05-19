@@ -261,7 +261,7 @@ Asking the user to run two tools to answer one question is poor ergonomics.
 - Submodule behaviour: `hanko --repo path` always operates on the named repo, never traverses submodules.
   Document.
 - Worktree behaviour: support `git worktree`-style auxiliary worktrees.
-- Long-tail git states: rebase in progress, bisect in progress, merge in progress — surface clearly rather than producing a confusing version.
+- [x] Long-tail git states: rebase / bisect / merge / cherry-pick / revert in progress all refused with a clear error pointing at `git <op> --abort` (D-017).
 - Cross-platform CI: matrix of `linux/x86_64`, `linux/arm64`, `darwin/arm64`, `windows/x86_64` for at least the smoke tests.
 - Golangci-lint clean.
   Coverage > 70% on `internal/version`.
