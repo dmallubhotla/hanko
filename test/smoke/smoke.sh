@@ -98,8 +98,8 @@ commit "$repo" three
 got=$("$HANKO" --repo "$repo" version)
 assert_eq "2 commits past tag on main → 1.2.5" "1.2.5" "$got"
 
-got=$("$HANKO" --repo "$repo" version --format gha | sort)
-expected=$(printf "branch=main\nfull=1.2.5\nis-prerelease=false\nmajor=1\nmajor-minor=1.2\nminor=2\npatch=5\nshort-sha=%s" "$(git -C "$repo" rev-parse --short HEAD)")
+got=$("$HANKO" --repo "$repo" version --format gha | LC_ALL=C sort)
+expected=$(printf "branch=main\nfull=1.2.5\nis-prerelease=false\nmajor-minor=1.2\nmajor=1\nminor=2\npatch=5\nshort-sha=%s" "$(git -C "$repo" rev-parse --short HEAD)")
 assert_eq "--format gha shape" "$expected" "$got"
 
 section "hanko version on a feature branch"
