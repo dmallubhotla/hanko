@@ -45,7 +45,7 @@
       # Hoisted out of the overlay so it's a clear single source of truth even
       # though hanko currently only exposes one derivation — matches the D-015
       # shared-`let` pattern recommended for consumers.
-      version = "0.0.1";
+      version = "0.1.0-seal-test.14";
       commonLdflags = [
         "-s"
         "-w"
