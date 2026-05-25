@@ -7,8 +7,12 @@
 #
 # Prerequisites in the consumer repo:
 #   - `.hanko.yaml` with `stamp-targets:`. See hanko's own `.hanko.yaml`.
-#   - `GITHUB_TOKEN` allowed to push to the release branch — or pass a
-#     PAT / App token at checkout if branch protection blocks it.
+#   - A GitHub App (with `Contents: read and write`) installed on the
+#     target repo, and its Client ID + private key stored as the secrets
+#     `RELEASE_APP_CLIENT_ID` and `RELEASE_APP_PRIVATE_KEY`. The App
+#     identity is required because tag pushes made with the default
+#     `GITHUB_TOKEN` do *not* trigger other workflows — so the companion
+#     tag-triggered workflow would never fire.
 
 name: Seal release
 
@@ -39,10 +43,16 @@ jobs:
       HANKO_VERSION: v0.2.1
       HANKO_REPO: dmallubhotla/hanko
     steps:
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-          # token: ${{ secrets.RELEASE_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Install hanko
         env:
