@@ -1,16 +1,12 @@
 name: ci
-
 on:
   push:
     branches: ['**']
-
 permissions:
   contents: read
-
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   nix:
     runs-on: ubuntu-latest
