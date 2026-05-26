@@ -1,0 +1,70 @@
+name: build-test
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            runs-on: ubuntu-latest
+          - target: linux-arm64
+            runs-on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - run: nix flake check --print-build-logs
+      - name: Build hanko
+        run: |
+          nix build --print-build-logs .#default
+          cp ./result/bin/hanko hanko-${{ matrix.target }}
+      - name: Compute checksums
+        run: shasum -a 256 hanko-${{ matrix.target }} > checksums-${{ matrix.target }}.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hanko-${{ matrix.target }}
+          path: |
+            hanko-${{ matrix.target }}
+            checksums-${{ matrix.target }}.txt
+          retention-days: 7
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: hanko-*
+          merge-multiple: true
+      - name: Assemble combined checksums
+        run: cat checksums-*.txt | sort > checksums.txt
+      - name: Stage install script for upload
+        run: cp scripts/install.sh install.sh
+      - name: Publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          FILES=(
+            hanko-linux-amd64
+            hanko-linux-arm64
+            checksums.txt
+            install.sh
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${FILES[@]}" --clobber
+          else
+            gh release create "$TAG" --generate-notes "${FILES[@]}"
+          fi
