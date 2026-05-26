@@ -61,15 +61,32 @@ Anyone who prefers a hand-rolled recipe can still call the primitives directly �
 M0–M3 shipped: real version computation, idempotent tagging, and stamping for `go-ldflags` / `docker tags` / `docker labels` / `helm` / `nix` work end-to-end against unit, smoke, and flow tests.
 See [ROADMAP.md](./ROADMAP.md) for what's left before v1, and [docs/design-decisions.md](./docs/design-decisions.md) for open design questions.
 
+## Install
+
+Prebuilt binaries for `linux-amd64` and `linux-arm64` are attached to every tagged release.
+The install script fetches the binary for your platform, verifies it against the published `checksums.txt`, and drops it into `$HOME/.local/bin` (override with `-d` or `HANKO_INSTALL_DIR`):
+
+```sh
+curl -fsSL https://github.com/dmallubhotla/hanko/releases/latest/download/install.sh | bash
+```
+
+Pin a specific release with `-V`:
+
+```sh
+curl -fsSL https://github.com/dmallubhotla/hanko/releases/latest/download/install.sh | bash -s -- -V v0.2.4
+```
+
+Or skip the script and grab `hanko-<target>` + `checksums.txt` from the [releases page](https://github.com/dmallubhotla/hanko/releases) directly.
+Nix users can `nix run github:dmallubhotla/hanko -- version` or add this flake as an input.
+
 ## Quick start
 
 ```sh
-nix build
-./result/bin/hanko version             # → e.g. 1.2.3 or 1.2.3-feature-foo.4
-./result/bin/hanko version --format full
-./result/bin/hanko version --format json
-./result/bin/hanko version --format env
-./result/bin/hanko version --format gha  # key=value lines for $GITHUB_OUTPUT
+hanko version                          # → e.g. 1.2.3 or 1.2.3-feature-foo.4
+hanko version --format full
+hanko version --format json
+hanko version --format env
+hanko version --format gha             # key=value lines for $GITHUB_OUTPUT
 ```
 
 For more, see [examples/local-usage.md](./examples/local-usage.md) and the migration sketches in [examples/migrations/](./examples/migrations/).
