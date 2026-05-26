@@ -266,7 +266,7 @@ func validate(c *Config) error {
 			return fmt.Errorf("stamp-targets[%d]: set either key: or keys:, not both", i)
 		}
 		if s.Key == "" && len(s.Keys) == 0 {
-			return fmt.Errorf("stamp-targets[%d]: must set key: or keys:", i)
+			return fmt.Errorf("stamp-targets[%d]: must set key: or keys:, neither was set", i)
 		}
 	}
 	return nil
