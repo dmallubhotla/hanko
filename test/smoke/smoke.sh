@@ -450,6 +450,104 @@ set -e
 assert_exit "exit code on prerelease" 1 "$code"
 assert_contains "error mentions pre-release" "pre-release" "$out"
 
+section "hanko seal --initial — bootstraps first release with verbatim value"
+repoSealInit=$(mkrepo)
+commit "$repoSealInit" one
+commit_yaml "$repoSealInit" 'seal:
+  push-remote: ""
+'
+got=$("$HANKO" --repo "$repoSealInit" seal --initial=v0.1.0 2>&1)
+assert_contains "seal output names the tag" "v0.1.0" "$got"
+got_tag=$(git -C "$repoSealInit" tag -l v0.1.0)
+assert_eq "tag v0.1.0 was created" "v0.1.0" "$got_tag"
+
+section "hanko seal --initial — bare form uses initial-version from config"
+repoSealInitCfg=$(mkrepo)
+commit "$repoSealInitCfg" one
+commit_yaml "$repoSealInitCfg" 'initial-version: "0.2.0"
+seal:
+  push-remote: ""
+'
+got=$("$HANKO" --repo "$repoSealInitCfg" seal --initial 2>&1)
+assert_contains "seal output names the tag from config initial-version" "0.2.0" "$got"
+got_tag=$(git -C "$repoSealInitCfg" tag -l 0.2.0)
+assert_eq "bare tag 0.2.0 was created" "0.2.0" "$got_tag"
+
+section "hanko seal --initial — stamps the initial value into stamp-targets"
+repoSealInitStamp=$(mkrepo)
+cat >"$repoSealInitStamp/pyproject.toml" <<'EOF'
+[project]
+name = "demo"
+version = "0.0.0"
+EOF
+cat >"$repoSealInitStamp/.hanko.yaml" <<'EOF'
+seal:
+  push-remote: ""
+stamp-targets:
+  - path: pyproject.toml
+    format: toml
+    key: project.version
+EOF
+git -C "$repoSealInitStamp" add .
+git -C "$repoSealInitStamp" commit -q -m initial
+"$HANKO" --repo "$repoSealInitStamp" seal --initial=v0.1.0 >/dev/null
+got=$(grep '^version' "$repoSealInitStamp/pyproject.toml")
+assert_eq "stamp-target received the verbatim semver (no v)" 'version = "0.1.0"' "$got"
+
+section "hanko seal --initial — refuses if any semver tag already exists"
+repoSealInitTaken=$(mkrepo)
+commit "$repoSealInitTaken" one
+git -C "$repoSealInitTaken" tag v0.1.0
+commit_yaml "$repoSealInitTaken" 'seal:
+  push-remote: ""
+'
+commit "$repoSealInitTaken" two
+set +e
+out=$("$HANKO" --repo "$repoSealInitTaken" seal --initial=v1.0.0 2>&1)
+code=$?
+set -e
+assert_exit "exit code" 1 "$code"
+assert_contains "error explains why" "--initial only valid when no semver-shaped tag exists" "$out"
+
+section "hanko seal --initial — refuses non-semver values"
+repoSealInitBad=$(mkrepo)
+commit "$repoSealInitBad" one
+commit_yaml "$repoSealInitBad" 'seal:
+  push-remote: ""
+'
+set +e
+out=$("$HANKO" --repo "$repoSealInitBad" seal --initial=banana 2>&1)
+code=$?
+set -e
+assert_exit "exit code" 1 "$code"
+assert_contains "error mentions shape" "not a semver-shaped tag" "$out"
+
+section "hanko seal --initial — refuses combination with --bump"
+repoSealInitBump=$(mkrepo)
+commit "$repoSealInitBump" one
+commit_yaml "$repoSealInitBump" 'seal:
+  push-remote: ""
+'
+set +e
+out=$("$HANKO" --repo "$repoSealInitBump" seal --initial=v0.1.0 --bump=minor 2>&1)
+code=$?
+set -e
+assert_exit "exit code" 1 "$code"
+assert_contains "error mentions mutually exclusive" "mutually exclusive" "$out"
+
+section "hanko seal --initial — prerelease-shaped initial still trips the blocker"
+repoSealInitPre=$(mkrepo)
+commit "$repoSealInitPre" one
+commit_yaml "$repoSealInitPre" 'seal:
+  push-remote: ""
+'
+set +e
+out=$("$HANKO" --repo "$repoSealInitPre" seal --initial=v0.1.0-beta.1 2>&1)
+code=$?
+set -e
+assert_exit "exit code" 1 "$code"
+assert_contains "error mentions pre-release" "pre-release" "$out"
+
 section "hanko version --bump (manual override)"
 repoBump=$(mkrepo)
 commit "$repoBump" one

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/dmallubhotla/hanko/internal/config"
@@ -14,9 +15,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// sentinel value pflag stores when `--initial` is passed without `=value`.
+// Picked to be unrepresentable as a real user value.
+const sealInitialFromConfig = "\x00from-config"
+
 var (
-	sealDryRun bool
-	sealBump   string
+	sealDryRun  bool
+	sealBump    string
+	sealInitial string
 )
 
 var sealCmd = &cobra.Command{
@@ -32,6 +38,11 @@ Resolve version, stamp repo, commit changes and atomically tag-and-push.
 		case "", "patch", "minor", "major", "none":
 		default:
 			return fmt.Errorf("unknown --bump %q (want: patch, minor, major, none)", sealBump)
+		}
+
+		useInitial := cmd.Flags().Changed("initial")
+		if useInitial && sealBump != "" {
+			return fmt.Errorf("--initial and --bump are mutually exclusive")
 		}
 
 		cfg, err := config.Load(repoPath)
@@ -59,9 +70,36 @@ Resolve version, stamp repo, commit changes and atomically tag-and-push.
 			return fmt.Errorf("detached HEAD; seal needs a branch to push to")
 		}
 
+		// Resolve --initial up front so we can validate before doing work.
+		// Bootstrap-only, same constraints as `hanko tag --initial`.
+		var initialValue string
+		if useInitial {
+			if sealInitial == sealInitialFromConfig {
+				initialValue = cfg.InitialVersion
+			} else {
+				initialValue = sealInitial
+			}
+			if info.LatestTag != "" {
+				return fmt.Errorf("--initial only valid when no semver-shaped tag exists (found %q)", info.LatestTag)
+			}
+			if !initialRE.MatchString(initialValue) {
+				return fmt.Errorf("--initial %q is not a semver-shaped tag (want v?MAJOR.MINOR.PATCH[-pre][+meta])", initialValue)
+			}
+		}
+
 		v, err := version.Compute(info, cfg, sealBump)
 		if err != nil {
 			return fmt.Errorf("compute version: %w", err)
+		}
+
+		// Override the computed version with the verbatim initial value.
+		// In the bootstrap state, Compute returns a prerelease (e.g.
+		// `0.1.0-main.1`); --initial replaces that with the clean value the
+		// caller named. The prerelease blocker below stays in place: if the
+		// caller asks for a prerelease initial (e.g. `v0.1.0-beta.1`), it
+		// will correctly refuse.
+		if useInitial {
+			overrideVersionForInitial(&v, initialValue)
 		}
 
 		if v.IsPreRelease && refusePrereleaseSeal(cfg) {
@@ -70,12 +108,18 @@ Resolve version, stamp repo, commit changes and atomically tag-and-push.
 
 		commitMessage := v.Expand(cfg.Seal.CommitMessage)
 
-		// Tag name follows D-002: mirror the latest tag's `v` prefix.
-		prefix := ""
-		if strings.HasPrefix(info.LatestTag, "v") {
-			prefix = "v"
+		// Tag name: verbatim from --initial (caller picks the v-prefix
+		// policy), otherwise D-002 (mirror the latest tag's `v` prefix).
+		var tagName string
+		if useInitial {
+			tagName = initialValue
+		} else {
+			prefix := ""
+			if strings.HasPrefix(info.LatestTag, "v") {
+				prefix = "v"
+			}
+			tagName = prefix + v.SemVer
 		}
-		tagName := prefix + v.SemVer
 
 		// No-release-needed: the bump strategy decided the next tag should
 		// have the same name as the latest existing one. Could be:
@@ -202,6 +246,34 @@ func runGit(repo string, args ...string) error {
 	return nil
 }
 
+// overrideVersionForInitial rewrites v in place so it represents the verbatim
+// `--initial` value: major/minor/patch parsed from the value, no pre-release
+// (unless the value itself encoded one), no synthesised build metadata.
+// Caller must have already validated `value` against initialRE.
+func overrideVersionForInitial(v *version.Version, value string) {
+	s := strings.TrimPrefix(value, "v")
+	core, build := s, ""
+	if i := strings.Index(s, "+"); i >= 0 {
+		core, build = s[:i], s[i+1:]
+	}
+	mmp, pre := core, ""
+	if i := strings.Index(core, "-"); i >= 0 {
+		mmp, pre = core[:i], core[i+1:]
+	}
+	parts := strings.SplitN(mmp, ".", 3)
+	v.Major, _ = strconv.Atoi(parts[0])
+	v.Minor, _ = strconv.Atoi(parts[1])
+	v.Patch, _ = strconv.Atoi(parts[2])
+	v.PreRelease = pre
+	v.BuildMetadata = build
+	v.IsPreRelease = pre != ""
+	v.SemVer = s
+	v.FullSemVer = s
+	if build != "" {
+		v.FullSemVer = core + "+" + build
+	}
+}
+
 func indexHasChanges(repo string) (bool, error) {
 	c := exec.Command("git", "diff", "--cached", "--quiet")
 	c.Dir = repo
@@ -217,5 +289,7 @@ func indexHasChanges(repo string) (bool, error) {
 func init() {
 	sealCmd.Flags().BoolVar(&sealDryRun, "dry-run", false, "print the planned steps without mutating anything")
 	sealCmd.Flags().StringVar(&sealBump, "bump", "", "force a bump direction for this invocation: patch | minor | major | none")
+	sealCmd.Flags().StringVar(&sealInitial, "initial", "", "seal the first release verbatim; pass `--initial` alone to use `initial-version` from config, or `--initial=<value>` to override. Only valid when no semver-shaped tag exists yet.")
+	sealCmd.Flags().Lookup("initial").NoOptDefVal = sealInitialFromConfig
 	rootCmd.AddCommand(sealCmd)
 }
